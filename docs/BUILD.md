@@ -28,9 +28,9 @@ powershell -ExecutionPolicy Bypass -File build\build.ps1
 ## 3. 发布到 GitHub Release
 
 ```powershell
-gh release create v1.0.0 dist\AIOps_Agent.zip `
-  --title "v1.0.0 · 首个公开版本" `
-  --notes "初始版本：自然语言 SSH 运维、多主机分组、值守监控与邮件告警、本地知识库。"
+gh release create v1.0.1 dist\AIOps_Agent.zip `
+  --title "v1.0.1 · AIOps_Agent" `
+  --notes "自然语言 SSH 运维、多主机分组、值守监控与邮件告警、本地知识库。"
 ```
 
 没有 `gh` 的话，直接在仓库页面 **Releases → Draft a new release** 手动上传 zip 即可。
