@@ -1,0 +1,947 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>APang的智能运维助手</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+        :root {
+            --bg-main: #09090b; --bg-sidebar: #1e1e1e; --bg-panel: #121212; --bg-card: #1e1e1e;
+            --text-main: #d4d4d4; --text-sub: #a1a1aa; --border-color: #333333;
+            --accent: #005a9e; --accent-hover: #0078d7;
+            --user-bubble: #005a9e; --user-text: #ffffff;
+            --ai-bubble: #1e1e1e; --ai-text: #d4d4d4; --radius: 8px;
+        }
+        [data-theme="anime-pink"] {
+            --bg-main: #fdf2f8; --bg-sidebar: #fce7f3; --bg-panel: #ffffff; --bg-card: #ffffff;
+            --text-main: #4a4a4a; --text-sub: #9d8b95; --border-color: #f9a8d4;
+            --accent: #ec4899; --accent-hover: #db2777;
+            --user-bubble: linear-gradient(135deg, #f472b6, #ec4899); --user-text: #ffffff;
+            --ai-bubble: #fdf2f8; --ai-text: #4a4a4a; --radius: 16px;
+        }
+        [data-theme="cyber-blue"] {
+            --bg-main: #0f172a; --bg-sidebar: #1e293b; --bg-panel: #0f172a; --bg-card: #1e293b;
+            --text-main: #e2e8f0; --text-sub: #94a3b8; --border-color: #334155;
+            --accent: #06b6d4; --accent-hover: #0891b2;
+            --user-bubble: linear-gradient(135deg, #0ea5e9, #06b6d4); --user-text: #ffffff;
+            --ai-bubble: #1e293b; --ai-text: #e2e8f0; --radius: 12px;
+        }
+        body { background-color: var(--bg-main); color: var(--text-main); margin: 0; overflow: hidden; }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 3px; }
+        .markdown-body table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 13px; }
+        .markdown-body th, .markdown-body td { border: 1px solid var(--border-color); padding: 8px 12px; text-align: left; }
+        .markdown-body th { background: var(--bg-card); font-weight: 500; }
+        .markdown-body pre { background: var(--bg-main); padding: 12px; border-radius: 6px; overflow-x: auto; border: 1px solid var(--border-color); font-family: monospace; font-size: 13px; margin: 10px 0;}
+
+        .bg-theme-main { background-color: var(--bg-main); }
+        .bg-theme-sidebar { background-color: var(--bg-sidebar); }
+        .bg-theme-panel { background-color: var(--bg-panel); }
+        .bg-theme-card { background-color: var(--bg-card); }
+        .text-theme-main { color: var(--text-main); }
+        .text-theme-sub { color: var(--text-sub); }
+        .border-theme { border-color: var(--border-color); }
+        .bg-theme-accent { background-color: var(--accent); color: white;}
+        .hover-theme-accent:hover { background-color: var(--accent-hover); }
+        .rounded-theme { border-radius: var(--radius); }
+
+        .hidden { display: none !important; }
+        summary::-webkit-details-marker { display: none; }
+        .locked { opacity: 0.5; pointer-events: none; }
+        .progress-track { background-image: repeating-linear-gradient(90deg, transparent, transparent 19px, var(--border-color) 19px, var(--border-color) 20px); background-size: 20px 100%; }
+
+        .banner-warning { background: linear-gradient(90deg, #7f1d1d, #dc2626); color: white; text-align: center; padding: 8px; font-size: 13px; font-weight: bold; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); z-index: 30; cursor: pointer; transition: all 0.2s; }
+        .banner-warning:hover { filter: brightness(1.1); }
+
+        /* 知识库目录树 */
+        .tree-dir { cursor: pointer; user-select: none; padding: 2px 4px; border-radius: 4px; }
+        .tree-dir:hover { background: var(--bg-card); }
+        .tree-file { cursor: pointer; padding: 2px 4px; border-radius: 4px; margin-left: 16px; color: var(--text-sub); }
+        .tree-file:hover { color: var(--text-main); background: var(--bg-card); }
+        .tree-toggle { display: inline-block; width: 12px; text-align: center; font-size: 10px; transition: transform 0.2s; }
+        .tree-children { margin-left: 12px; display: none; border-left: 1px dashed var(--border-color); padding-left: 6px; }
+        .tree-dir.open > .tree-children { display: block; }
+        .tree-dir.open > .tree-toggle { transform: rotate(90deg); }
+
+        .cmd-block { border: 1px solid var(--border-color); border-radius: 6px; margin-bottom: 8px; overflow: hidden; background: var(--bg-card); }
+        .cmd-head { display: flex; justify-content: space-between; padding: 6px 12px; font-family: 'Consolas', monospace; font-size: 13px; cursor: pointer; }
+        .cmd-body { padding: 10px 12px; background: #000; color: #cbd5e1; font-family: 'Consolas', monospace; font-size: 12px; max-height: 250px; overflow-y: auto; display: none; white-space: pre-wrap; word-break: break-all; }
+        .cmd-block.open .cmd-body { display: block; }
+        .cmd-running { color: #eab308; font-weight: 600; }
+        .cmd-success { color: #22c55e; }
+        .cmd-fail { color: #ef4444; }
+        .host-tag { background: #3b82f6; color: white; padding: 1px 6px; border-radius: 4px; font-size: 10px; margin-right: 6px; }
+
+        /* 受管主机分组样式 */
+        .group-header { display: flex; justify-content: space-between; align-items: center; padding: 6px 8px; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold; background-color: rgba(250, 204, 21, 0.15); color: #facc15; margin-top: 6px; margin-bottom: 4px; transition: background-color 0.2s; }
+        .group-header:hover { background-color: rgba(250, 204, 21, 0.25); }
+        .server-card { display: flex; flex-direction: column; padding: 8px 10px; border-radius: 6px; cursor: pointer; border: 1px solid transparent; margin-bottom: 4px; transition: all 0.2s; position: relative; }
+        .server-card:hover { background-color: var(--bg-card); border-color: var(--border-color); }
+        .server-card.active { background-color: rgba(239, 68, 68, 0.15); border-color: rgba(239, 68, 68, 0.3); }
+    </style>
+</head>
+<body class="flex h-screen font-sans text-sm" data-theme="dark">
+
+    <!-- 左侧边栏 -->
+    <div class="w-[280px] bg-theme-sidebar border-r border-theme flex flex-col shadow-xl z-20 overflow-y-auto">
+        <div class="p-4 border-b border-theme relative">
+            <div class="flex justify-between items-start mb-1">
+                <span class="font-bold text-theme-main text-[16px] tracking-wide flex items-center gap-2">
+                    <span class="text-blue-500 text-xl">✦</span> APang的智能运维
+                </span>
+            </div>
+            <div class="text-[11px] text-theme-sub ml-7">V1.0</div>
+            <div class="text-[10px] font-bold text-orange-500 ml-7 mt-1">全栈极客开发</div>
+        </div>
+
+        <div class="p-4 border-b border-theme">
+            <div class="flex justify-between items-center mb-3">
+                <span class="text-theme-sub font-bold">AI 模型</span>
+                <button onclick="openModal('ai')" class="text-theme-sub hover:text-theme-main text-lg leading-none">+</button>
+            </div>
+            <div id="ai-list" class="space-y-2 mb-2"></div>
+            <p class="text-[10px] text-theme-sub leading-tight">自定义模型名（如 mymodel）<br>点击提供商切换；标「填 Key」的需先填写 API Key。</p>
+        </div>
+
+        <!-- 受管主机区 -->
+        <div id="server-container" class="p-4 border-b border-theme transition-opacity">
+            <div class="flex justify-between items-center mb-2">
+                <span class="text-theme-sub font-bold">受管主机</span>
+                <div class="flex gap-3">
+                    <button onclick="openModal('group')" class="text-[11px] text-theme-sub hover:text-theme-main font-bold">+ 目录</button>
+                    <button onclick="openModal('server')" class="text-[11px] text-blue-400 hover:text-blue-300 font-bold">+ 添加</button>
+                </div>
+            </div>
+            <div id="server-list" class="space-y-1 mb-2 text-xs"></div>
+            <p class="text-[10px] text-theme-sub leading-tight mt-2">点击主机即连接并切换；密码保存在本机 .env，hosts.yml 与 CLI 共享。</p>
+        </div>
+
+        <div class="p-4 border-b border-theme bg-theme-card">
+            <div class="flex justify-between items-center mb-2">
+                <span class="text-theme-sub font-bold flex items-center gap-2"><div class="w-2 h-2 rounded-full bg-green-500 animate-pulse" id="monitor-dot"></div> 值守监测</span>
+                <span class="text-[11px] text-theme-sub" id="monitor-stats">监测 0 台 暂停 0 台</span>
+            </div>
+            <button id="btn-toggle-monitor" onclick="toggleMonitor()" class="w-full py-1.5 rounded-theme border border-theme hover:bg-theme-sidebar transition-colors text-theme-main mb-2 font-medium">一键值守</button>
+            <p class="text-[10px] text-theme-sub leading-tight">自动值守 hosts.yml 全部主机；超阈值弹窗+横幅+报警音；连续连接失败自动暂停。</p>
+        </div>
+
+        <div class="p-4 bg-theme-card">
+            <span class="text-theme-sub font-bold block mb-2">📧 邮件通知</span>
+            <div class="space-y-2">
+                <label class="flex items-center gap-2 text-xs text-theme-sub mb-1">
+                    <input type="checkbox" id="enable-email" checked class="accent-blue-500"> 启用值守告警邮件
+                </label>
+                <input type="text" id="smtp-host" placeholder="SMTP 服务器（如 smtp.qq.com）" class="w-full bg-theme-sidebar border border-theme rounded-theme px-2 py-1 text-xs text-theme-main outline-none">
+                <div class="flex gap-2">
+                    <input type="text" id="smtp-port" placeholder="465" class="w-2/3 bg-theme-sidebar border border-theme rounded-theme px-2 py-1 text-xs text-theme-main outline-none">
+                    <label class="flex items-center gap-1 text-xs text-theme-sub"><input type="checkbox" id="smtp-ssl" checked class="accent-blue-500"> SSL</label>
+                </div>
+                <input type="text" id="smtp-user" placeholder="发信账号（如 xxx@qq.com）" class="w-full bg-theme-sidebar border border-theme rounded-theme px-2 py-1 text-xs text-theme-main outline-none">
+                <input type="password" id="smtp-pass" placeholder="已保存（留空则沿用）" class="w-full bg-theme-sidebar border border-theme rounded-theme px-2 py-1 text-xs text-theme-main outline-none">
+                <input type="text" id="to-email" placeholder="收件人，多个用逗号分隔" class="w-full bg-theme-sidebar border border-theme rounded-theme px-2 py-1 text-xs text-theme-main outline-none">
+
+                <div class="flex gap-2 mt-2">
+                    <button onclick="saveEmailSettings()" class="flex-1 bg-theme-sidebar border border-theme hover:bg-theme-main text-theme-main py-1 rounded-theme transition-colors">保存</button>
+                    <button onclick="sendTestEmail()" class="flex-1 bg-theme-sidebar border border-theme hover:bg-theme-main text-theme-main py-1 rounded-theme transition-colors">测试邮件</button>
+                </div>
+                <p class="text-[10px] text-theme-sub leading-tight mt-1">QQ/163 等邮箱填「授权码」而非登录密码；<br>端口 465 勾 SSL，587 不勾。</p>
+                <hr class="border-theme my-2">
+                <button onclick="clearHistory()" class="w-full bg-theme-sidebar border border-theme hover:bg-theme-main text-theme-main py-1.5 rounded-theme transition-colors">清空对话</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 中间主工作区 -->
+    <div class="flex-1 flex flex-col bg-theme-main relative min-w-0">
+        <div id="allow-all-banner" class="banner-warning hidden" onclick="disableAllowAll()">⚠️ 危险：已开启「本次会话全放行」，所有高危命令将被静默执行。点击此处关闭！</div>
+        <div id="alert-banner" class="banner-warning hidden" style="background: linear-gradient(90deg, #b45309, #d97706);" onclick="document.getElementById('alert-banner').classList.add('hidden')">⚠️ 注意：有主机资源使用率超出阈值！点击关闭。</div>
+
+        <div class="h-14 border-b border-theme flex items-center justify-between px-6 bg-theme-sidebar/80 backdrop-blur-md z-20">
+            <div class="flex items-center gap-2">
+                <div class="w-2 h-2 rounded-full bg-green-500"></div>
+                <span class="text-xs text-theme-sub font-medium" id="conn-status">主机 未连接</span>
+            </div>
+            <div class="flex items-center gap-1">
+                <button onclick="switchTab('panel')" id="tab-btn-panel" class="px-3 py-1.5 text-xs rounded-full text-theme-sub hover:text-theme-main tab-btn">📊 状态面板</button>
+                <button onclick="switchTab('kb')" id="tab-btn-kb" class="px-3 py-1.5 text-xs rounded-full text-theme-sub hover:text-theme-main tab-btn">📚 知识库</button>
+                <button onclick="switchTab('logs')" id="tab-btn-logs" class="px-3 py-1.5 text-xs rounded-full text-theme-sub hover:text-theme-main tab-btn">📝 日志</button>
+                <button onclick="switchTab('chat')" id="tab-btn-chat" class="px-4 py-1.5 text-xs font-bold rounded-full bg-theme-accent text-white tab-btn active shadow-md">💬 对话</button>
+                <button onclick="openModal('settings')" class="ml-4 text-theme-sub hover:text-theme-main transition-colors">⚙️ 设置</button>
+                <div class="w-px h-4 bg-theme-main mx-2"></div>
+                <button onclick="shutdownApp()" class="text-red-500 hover:text-red-400 text-xs font-bold px-2 py-1 transition-colors" title="彻底关闭后台服务">⏻ 关机</button>
+            </div>
+        </div>
+
+        <div id="view-chat" class="flex-1 flex flex-col min-h-0 hidden">
+            <div class="flex-1 overflow-y-auto p-6 space-y-4" id="chat-area">
+                <div class="flex flex-col items-center justify-center h-full text-theme-sub mt-20">
+                    <div class="text-5xl mb-4 opacity-50">✨</div>
+                    <div class="text-lg text-theme-main font-bold mb-2">欢迎使用 APang 的 AI 运维助手</div>
+                    <div class="text-sm">请在左侧面板点击 + 添加主机和模型开启对话</div>
+                </div>
+            </div>
+            <div class="p-4 border-t border-theme bg-theme-sidebar">
+                <div id="image-preview-container" class="hidden max-w-4xl mx-auto mb-2 relative inline-block">
+                    <img id="image-preview" class="h-16 rounded border border-theme object-cover">
+                    <button onclick="clearImage()" class="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs">×</button>
+                </div>
+                <div class="relative flex items-center max-w-4xl mx-auto">
+                    <input type="file" id="image-input" accept="image/*" class="hidden" onchange="handleImageUpload(event)">
+                    <button onclick="document.getElementById('image-input').click()" class="absolute left-3 text-theme-sub hover:text-theme-main" title="上传图片">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-5 h-5"><path stroke-linecap="round" stroke-linejoin="round" d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32m.009-.01l-.01.01m5.699-9.941l-7.81 7.81a1.5 1.5 0 002.112 2.13" /></svg>
+                    </button>
+                    <input type="text" id="chat-input" placeholder="输入运维任务，Enter 发送..." class="w-full bg-theme-main text-theme-main border border-theme rounded-theme pl-10 pr-28 py-3 outline-none focus:ring-2" onkeypress="if(event.key==='Enter') sendMsg()">
+                    <div class="absolute right-1 flex gap-1">
+                        <button id="btn-send" onclick="sendMsg()" class="bg-theme-accent hover-theme-accent text-white px-4 py-1.5 rounded-theme text-sm font-medium transition-colors">发送</button>
+                        <button id="btn-stop" onclick="stopTask()" class="hidden bg-red-600 hover:bg-red-500 text-white px-4 py-1.5 rounded-theme text-sm font-medium transition-colors">停止</button>
+                    </div>
+                </div>
+                <div class="text-center mt-2 text-[11px] text-theme-sub">高危命令执行前会弹窗确认。模型支持视觉可发图。</div>
+            </div>
+        </div>
+
+        <div id="view-panel" class="flex-1 p-6 overflow-y-auto hidden flex-col">
+            <div class="flex items-center justify-between mb-6">
+                <div class="flex items-center gap-3">
+                    <span class="px-3 py-1 border border-green-500/50 text-green-500 text-xs rounded-full bg-green-500/10">正常 <span id="stat-normal">0</span></span>
+                    <span class="px-3 py-1 border border-yellow-500/50 text-yellow-500 text-xs rounded-full bg-yellow-500/10">告警 <span id="stat-warning">0</span></span>
+                    <span class="px-3 py-1 border border-red-500/50 text-red-500 text-xs rounded-full bg-red-500/10">异常 <span id="stat-error">0</span></span>
+                    <span class="px-3 py-1 border border-theme text-theme-sub text-xs rounded-full">暂停 <span id="stat-paused">0</span></span>
+                    <span class="px-3 py-1 border border-theme text-theme-sub text-xs rounded-full">未采集 <span id="stat-unknown">0</span></span>
+                    <span class="px-3 py-1 border border-blue-500/50 text-blue-400 text-xs rounded-full bg-blue-500/10" id="stat-running">值守未开启</span>
+                </div>
+                <div class="text-xs text-theme-sub">数据来自值守轮询，面板每 5 秒刷新</div>
+            </div>
+            <div id="monitor-cards" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4"></div>
+        </div>
+
+        <div id="view-kb" class="flex-1 flex overflow-hidden hidden">
+            <div class="w-72 border-r border-theme flex flex-col bg-theme-sidebar">
+                <div class="p-4 border-b border-theme flex justify-between items-center">
+                    <span class="text-xs font-bold text-theme-main">知识库目录</span>
+                    <button onclick="triggerLocalDirSelect(event)" class="text-xs bg-theme-card border border-theme px-2 py-1 rounded-theme text-theme-main hover:bg-theme-main transition-colors" id="btn-add-kb">+ 添加路径</button>
+                </div>
+                <div class="p-2 overflow-y-auto flex-1 text-sm" id="kb-tree-container"></div>
+            </div>
+            <div class="flex-1 p-6 bg-theme-main overflow-y-auto markdown-body" id="kb-preview">
+                <div class="text-theme-sub text-center mt-10 font-bold">左侧点击文件预览，或添加本地目录让 AI 挂载</div>
+            </div>
+        </div>
+
+        <div id="view-logs" class="flex-1 flex flex-col hidden p-6">
+            <div class="flex justify-between items-center mb-4">
+                <div class="flex gap-2 text-xs text-theme-sub font-bold">系统运行日志</div>
+                <div class="flex gap-2">
+                    <select id="log-level-filter" onchange="loadLogs()" class="bg-theme-sidebar border border-theme text-xs rounded-theme px-3 py-1.5 text-theme-main outline-none">
+                        <option value="ALL">全部级别</option><option value="ERROR">ERROR</option><option value="WARNING">WARNING</option><option value="INFO">INFO</option>
+                    </select>
+                    <button onclick="loadLogs()" class="bg-theme-accent text-white text-xs px-4 py-1.5 rounded-theme">刷新</button>
+                </div>
+            </div>
+            <div class="flex-1 overflow-auto border border-theme rounded-theme bg-theme-card">
+                <table class="w-full text-left text-xs font-mono"><tbody id="log-list"></tbody></table>
+            </div>
+        </div>
+    </div>
+
+    <div class="w-64 bg-theme-sidebar border-l border-theme flex flex-col z-20">
+        <div class="h-14 border-b border-theme flex items-center justify-between px-5">
+            <span class="text-xs font-bold text-theme-sub">提问历史</span>
+            <button onclick="clearHistory()" class="text-xs text-red-500 hover:text-red-400" title="清空该主机历史">🗑️ 清除</button>
+        </div>
+        <div class="flex-1 overflow-y-auto p-2 space-y-1" id="history-list"></div>
+    </div>
+
+    <!-- 弹窗们 -->
+    <div id="modal-group" class="fixed inset-0 bg-black/60 backdrop-blur-sm hidden items-center justify-center z-50">
+        <div class="bg-theme-sidebar border border-theme rounded-theme p-6 w-[350px] shadow-2xl">
+            <h3 class="text-lg font-bold text-theme-main mb-4">新建目录</h3>
+            <input type="text" id="new-group-name" placeholder="输入新目录名称（如：生产环境）" class="w-full bg-theme-main border border-theme text-theme-main rounded-theme px-3 py-2 outline-none mb-4">
+            <div class="flex justify-end gap-3">
+                <button onclick="closeModal('group')" class="px-4 py-2 text-theme-sub">取消</button>
+                <button onclick="createGroup()" class="px-4 py-2 bg-theme-accent text-white rounded-theme font-bold">确认</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="modal-server" class="fixed inset-0 bg-black/60 backdrop-blur-sm hidden items-center justify-center z-50">
+        <div class="bg-theme-sidebar border border-theme rounded-theme p-6 w-[600px] shadow-2xl max-h-[90vh] overflow-y-auto">
+            <h3 class="text-xl font-bold text-theme-main mb-2">添加受管主机</h3>
+            <p class="text-xs text-theme-sub mb-5 leading-relaxed">写入 config/hosts.yml（与 CLI 共享），密码保存到 .env。华为 VRP 免密设备：密码留空即可。 Windows 主机需已在目标机启用 OpenSSH（见 docs/Windows主机接入指引）。</p>
+
+            <div class="space-y-4 text-sm">
+                <div>
+                    <label class="block text-[13px] font-bold text-theme-main mb-1">名称（唯一标识）</label>
+                    <input type="text" id="s-name" placeholder="如 web-01 / AR1" class="w-full bg-theme-main border border-theme rounded-theme px-3 py-2 outline-none focus:border-blue-500 text-sm text-theme-main">
+                </div>
+
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-[13px] font-bold text-theme-main mb-1">设备类型</label>
+                        <select class="w-full bg-theme-main border border-theme rounded-theme px-3 py-2 outline-none focus:border-blue-500 text-sm text-theme-main">
+                            <option class="bg-theme-sidebar">Linux (SSH)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-[13px] font-bold text-theme-main mb-1">端口</label>
+                        <input type="number" id="s-port" value="22" class="w-full bg-theme-main border border-theme rounded-theme px-3 py-2 outline-none focus:border-blue-500 text-sm text-theme-main">
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-[13px] font-bold text-theme-main mb-1">IP / 主机名</label>
+                    <input type="text" id="s-host" placeholder="192.168.1.10 / 127.0.0.1" class="w-full bg-theme-main border border-theme rounded-theme px-3 py-2 outline-none focus:border-blue-500 text-sm text-theme-main">
+                </div>
+
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-[13px] font-bold text-theme-main mb-1">用户名</label>
+                        <input type="text" id="s-user" value="root" class="w-full bg-theme-main border border-theme rounded-theme px-3 py-2 outline-none focus:border-blue-500 text-sm text-theme-main">
+                    </div>
+                    <div>
+                        <label class="block text-[13px] font-bold text-theme-main mb-1">密码</label>
+                        <input type="password" id="s-pwd" placeholder="Linux 必填；VRP 免密留空" class="w-full bg-theme-main border border-theme rounded-theme px-3 py-2 outline-none focus:border-blue-500 text-sm text-theme-main">
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-[13px] font-bold text-theme-main mb-1">备注（可选）</label>
+                    <input type="text" id="s-remark" placeholder="如：CentOS 7.9 Web 服务器" class="w-full bg-theme-main border border-theme rounded-theme px-3 py-2 outline-none focus:border-blue-500 text-sm text-theme-main">
+                </div>
+
+                <div>
+                    <label class="block text-[13px] font-bold text-theme-main mb-1">所属分组（可选，可下拉选择或输入新目录名）</label>
+                    <input type="text" id="s-group" list="group-list" placeholder="如：生产环境 / 网络设备；留空为未分组" class="w-full bg-theme-main border border-theme rounded-theme px-3 py-2 outline-none focus:border-blue-500 text-sm text-theme-main">
+                    <datalist id="group-list"></datalist>
+                </div>
+            </div>
+
+            <div class="flex justify-end gap-3 mt-8">
+                <button onclick="closeModal('server')" class="px-5 py-2 text-sm text-theme-sub border border-theme rounded-theme hover:bg-theme-main transition-colors">取消</button>
+                <button onclick="addServer()" class="px-6 py-2 bg-theme-accent text-white rounded-theme font-medium shadow-sm transition-colors hover:bg-theme-accent/80">保存并连接</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="modal-ai" class="fixed inset-0 bg-black/60 backdrop-blur-sm hidden items-center justify-center z-50">
+        <div class="bg-theme-sidebar border border-theme rounded-theme p-6 w-[400px] shadow-2xl">
+            <h3 class="text-lg font-bold text-theme-main mb-4">添加 AI 模型</h3>
+            <div class="space-y-3">
+                <input type="text" id="ai-name" placeholder="名称" class="w-full bg-theme-main border border-theme text-theme-main rounded-theme px-3 py-2 outline-none">
+                <input type="text" id="ai-url" value="https://api.deepseek.com" class="w-full bg-theme-main border border-theme text-theme-main rounded-theme px-3 py-2 outline-none">
+                <input type="text" id="ai-model" value="deepseek-chat" class="w-full bg-theme-main border border-theme text-theme-main rounded-theme px-3 py-2 outline-none">
+                <input type="password" id="ai-key" placeholder="API Key" class="w-full bg-theme-main border border-theme text-theme-main rounded-theme px-3 py-2 outline-none">
+            </div>
+            <div class="flex justify-end gap-3 mt-6"><button onclick="closeModal('ai')" class="px-4 py-2 text-theme-sub">取消</button><button onclick="addAI()" class="px-4 py-2 bg-theme-accent text-white rounded-theme font-bold">保存</button></div>
+        </div>
+    </div>
+
+    <div id="modal-settings" class="fixed inset-0 bg-black/60 backdrop-blur-sm hidden items-center justify-center z-50">
+        <div class="bg-theme-sidebar border border-theme rounded-theme p-8 w-[600px] shadow-2xl">
+            <h3 class="text-xl font-bold text-theme-main mb-6">⚙️ 系统设置</h3>
+            <div class="mb-6">
+                <h4 class="text-sm font-bold text-theme-accent mb-3">界面风格</h4>
+                <div class="grid grid-cols-3 gap-3">
+                    <div onclick="applyTheme('dark')" class="cursor-pointer border-2 border-theme rounded-theme p-3 text-center hover:border-blue-500 theme-card" id="theme-card-dark"><div class="w-full h-8 bg-[#1e1e1e] rounded mb-2"></div><span class="text-xs font-bold">极客黑</span></div>
+                    <div onclick="applyTheme('anime-pink')" class="cursor-pointer border-2 border-theme rounded-theme p-3 text-center hover:border-pink-400 theme-card" id="theme-card-anime-pink"><div class="w-full h-8 bg-gradient-to-r from-pink-200 to-pink-400 rounded mb-2"></div><span class="text-xs font-bold">樱花粉</span></div>
+                    <div onclick="applyTheme('cyber-blue')" class="cursor-pointer border-2 border-theme rounded-theme p-3 text-center hover:border-cyan-400 theme-card" id="theme-card-cyber-blue"><div class="w-full h-8 bg-gradient-to-r from-blue-900 to-cyan-600 rounded mb-2"></div><span class="text-xs font-bold">赛博蓝</span></div>
+                </div>
+            </div>
+            <div class="mb-6">
+                <h4 class="text-sm font-bold text-theme-accent mb-3">AI 运行参数</h4>
+                <div class="grid grid-cols-2 gap-4">
+                    <div><label class="block text-xs font-bold text-theme-sub mb-1">最大工具调用轮数</label><input type="number" id="set-max-rounds" class="w-full bg-theme-main border border-theme rounded-theme px-3 py-2 text-theme-main outline-none"></div>
+                    <div><label class="block text-xs font-bold text-theme-sub mb-1">上下文最大消息数</label><input type="number" id="set-max-context" class="w-full bg-theme-main border border-theme rounded-theme px-3 py-2 text-theme-main outline-none"></div>
+                    <div class="col-span-2"><label class="block text-xs font-bold text-theme-sub mb-1">裁剪后保留最近消息数</label><input type="number" id="set-keep-context" class="w-full bg-theme-main border border-theme rounded-theme px-3 py-2 text-theme-main outline-none"></div>
+                </div>
+            </div>
+            <div class="mb-6">
+                <h4 class="text-sm font-bold text-theme-accent mb-3">值守监测</h4>
+                <div class="grid grid-cols-2 gap-4">
+                    <div><label class="block text-xs font-bold text-theme-sub mb-1">采集间隔 (秒)</label><input type="number" id="set-interval" class="w-full bg-theme-main border border-theme rounded-theme px-3 py-2 text-theme-main outline-none"></div>
+                    <div><label class="block text-xs font-bold text-theme-sub mb-1">CPU 阈值 (%)</label><input type="number" id="set-th-cpu" class="w-full bg-theme-main border border-theme rounded-theme px-3 py-2 text-theme-main outline-none"></div>
+                    <div><label class="block text-xs font-bold text-theme-sub mb-1">内存阈值 (%)</label><input type="number" id="set-th-mem" class="w-full bg-theme-main border border-theme rounded-theme px-3 py-2 text-theme-main outline-none"></div>
+                    <div><label class="block text-xs font-bold text-theme-sub mb-1">磁盘阈值 (%)</label><input type="number" id="set-th-disk" class="w-full bg-theme-main border border-theme rounded-theme px-3 py-2 text-theme-main outline-none"></div>
+                </div>
+            </div>
+            <div class="flex justify-end gap-3 mt-8"><button onclick="closeModal('settings')" class="px-5 py-2 text-theme-sub border border-theme rounded-theme">取消</button><button onclick="saveSettings()" class="px-6 py-2 bg-theme-accent text-white rounded-theme font-bold">保存并生效</button></div>
+        </div>
+    </div>
+
+    <div id="modal-confirm" class="fixed inset-0 bg-black/60 backdrop-blur-sm hidden items-center justify-center z-[100]">
+        <div class="bg-theme-sidebar border border-theme rounded-theme p-6 w-[500px] shadow-2xl relative">
+            <h3 class="text-lg font-bold text-red-500 mb-2 flex items-center gap-2">⚠️ 高危命令确认</h3>
+            <p class="text-xs text-theme-sub mb-4">AI 要执行以下高危命令，请确认。该操作可能影响系统安全或数据。</p>
+            <div class="mb-3">
+                <span class="text-xs text-red-500 border border-red-500/30 bg-red-500/10 px-2 py-1 rounded-md font-bold" id="confirm-tag">高危操作</span>
+                <span class="text-xs text-blue-400 font-bold ml-2" id="confirm-host"></span>
+            </div>
+            <div class="bg-[#1e1e2e] text-[#cdd6f4] font-mono text-sm p-4 rounded-lg mb-6 break-all border border-gray-700">
+                <span id="confirm-cmd"></span>
+            </div>
+            <div class="flex justify-end gap-3">
+                <button onclick="confirmAction('skip')" class="px-4 py-2 text-sm text-theme-sub hover:text-theme-main bg-theme-main hover:bg-theme-card border border-theme rounded transition-colors">跳过</button>
+                <button onclick="confirmAction('allow_all')" class="px-4 py-2 text-sm text-[#9a6700] bg-[#fff8c5] border border-[#d4a72c66] hover:bg-[#fdf1a8] rounded transition-colors font-medium">本次会话全放行</button>
+                <button onclick="confirmAction('yes')" class="px-4 py-2 text-sm text-white bg-[#cf222e] hover:bg-[#a40e26] rounded font-bold shadow-sm transition-colors">确认执行</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- 移除登录逻辑，直接初始化 ---
+        let ws;
+        ws = new WebSocket(`ws://${window.location.host}/ws`);
+
+        let selectedServerId = null;
+        let selectedAiId = null;
+        let currentImageBase64 = null;
+        let isExecuting = false;
+        let sessionAllowAll = false;
+
+        function playAlertSound() {
+            try {
+                const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                const osc = ctx.createOscillator(); const gainNode = ctx.createGain();
+                osc.type = 'sine'; osc.frequency.setValueAtTime(880, ctx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(1760, ctx.currentTime + 0.1);
+                gainNode.gain.setValueAtTime(0.5, ctx.currentTime);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.5);
+                osc.connect(gainNode); gainNode.connect(ctx.destination);
+                osc.start(); osc.stop(ctx.currentTime + 0.5);
+            } catch(e) { }
+        }
+
+        window.onload = () => {
+            loadServers(); loadAI(); loadEmailSettings(); switchTab('chat'); setInterval(fetchMonitorData, 5000);
+            applyTheme(localStorage.getItem('app-theme') || 'dark');
+        };
+
+        function toggleUI(executing) {
+            isExecuting = executing;
+            document.getElementById('btn-send').classList.toggle('hidden', executing);
+            document.getElementById('btn-stop').classList.toggle('hidden', !executing);
+            document.getElementById('server-container').style.pointerEvents = executing ? 'none' : 'auto';
+            document.getElementById('server-container').style.opacity = executing ? '0.5' : '1';
+        }
+
+        function stopTask() {
+            if(ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ action: "stop" }));
+            }
+            toggleUI(false);
+            const blocks = document.querySelectorAll('.cmd-block.open');
+            blocks.forEach(block => {
+                block.classList.remove('open');
+                const head = block.querySelector('.cmd-head');
+                if (head && head.innerHTML.includes('执行中')) {
+                    head.innerHTML = head.innerHTML.replace('执行中...', '已强制中止');
+                    const runningSpan = head.querySelector('.cmd-running');
+                    if(runningSpan) runningSpan.className = 'cmd-fail font-bold';
+                }
+            });
+        }
+
+        function applyTheme(themeName) {
+            document.body.setAttribute('data-theme', themeName);
+            localStorage.setItem('app-theme', themeName);
+            document.querySelectorAll('.theme-card').forEach(card => card.classList.remove('border-blue-500', 'border-pink-400', 'border-cyan-400'));
+            const active = document.getElementById(`theme-card-${themeName}`);
+            if(active) {
+                if(themeName === 'anime-pink') active.classList.add('border-pink-400');
+                else if(themeName === 'cyber-blue') active.classList.add('border-cyan-400');
+                else active.classList.add('border-blue-500');
+            }
+        }
+
+        function handleImageUpload(event) {
+            const file = event.target.files[0]; if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                currentImageBase64 = e.target.result;
+                document.getElementById('image-preview').src = currentImageBase64;
+                document.getElementById('image-preview-container').classList.remove('hidden');
+            };
+            reader.readAsDataURL(file);
+        }
+        function clearImage() { currentImageBase64 = null; document.getElementById('image-input').value = ''; document.getElementById('image-preview-container').classList.add('hidden'); }
+
+        function switchTab(tab) {
+            document.querySelectorAll('.tab-btn').forEach(btn => { btn.classList.remove('bg-theme-accent', 'text-white', 'active', 'font-bold'); btn.classList.add('text-theme-sub'); });
+            const activeBtn = document.getElementById(`tab-btn-${tab}`);
+            if(activeBtn) { activeBtn.classList.add('bg-theme-accent', 'text-white', 'active', 'font-bold'); activeBtn.classList.remove('text-theme-sub'); }
+
+            ['chat', 'panel', 'kb', 'logs'].forEach(t => {
+                const el = document.getElementById(`view-${t}`);
+                if(el) { el.classList.add('hidden'); el.classList.remove('flex'); }
+            });
+            const targetView = document.getElementById(`view-${tab}`);
+            if(targetView) { targetView.classList.remove('hidden'); targetView.classList.add('flex'); }
+
+            if(tab === 'panel') fetchMonitorData();
+            if(tab === 'logs') loadLogs();
+            if(tab === 'kb') loadKBTree();
+        }
+
+        async function loadServers() {
+            const res = await fetch('/api/servers'); if(!res.ok) return;
+            const data = await res.json();
+            const groupsRes = await fetch('/api/groups'); if(!groupsRes.ok) return;
+            const groupNames = await groupsRes.json();
+
+            const box = document.getElementById('server-list');
+            box.innerHTML = '';
+
+            if (!selectedServerId && data.length > 0) {
+                selectedServerId = data[0].id;
+                document.getElementById('conn-status').innerText = `主机 ${data[0].name}`;
+                loadHistory();
+            }
+
+            const groups = {};
+            groupNames.forEach(g => groups[g] = []);
+            data.forEach(s => {
+                const g = s.group_name || '未分组';
+                if (!groups[g]) groups[g] = [];
+                groups[g].push(s);
+            });
+
+            for (const [groupName, servers] of Object.entries(groups)) {
+                const groupHeader = document.createElement('div');
+                groupHeader.className = 'group-header flex justify-between items-center';
+                groupHeader.innerHTML = `
+                    <div class="flex items-center gap-1 flex-1">
+                        <span class="text-[10px] toggle-icon">▼</span>
+                        <span class="font-bold text-yellow-500">${groupName}</span>
+                        <span class="bg-yellow-500/20 px-2 rounded-full text-[10px] text-yellow-500 ml-1">${servers.length}</span>
+                    </div>
+                    ${groupName !== '未分组' ? `<button onclick="event.stopPropagation(); deleteGroup('${groupName}')" class="text-theme-sub hover:text-red-500 px-1" title="删除目录">×</button>` : ''}
+                `;
+
+                const groupContainer = document.createElement('div');
+                groupContainer.className = 'mb-2';
+
+                groupHeader.onclick = () => {
+                    const isHidden = groupContainer.classList.contains('hidden');
+                    if (isHidden) {
+                        groupContainer.classList.remove('hidden');
+                        groupHeader.querySelector('.toggle-icon').innerText = '▼';
+                    } else {
+                        groupContainer.classList.add('hidden');
+                        groupHeader.querySelector('.toggle-icon').innerText = '▶';
+                    }
+                };
+
+                servers.forEach(s => {
+                    const isActive = selectedServerId === s.id;
+                    const card = document.createElement('div');
+                    card.className = `server-card ${isActive ? 'active' : ''}`;
+                    card.onclick = () => {
+                        if(isExecuting) return;
+                        selectedServerId = s.id;
+                        loadServers();
+                        document.getElementById('conn-status').innerText = `主机 ${s.name}`;
+                        document.getElementById('chat-area').innerHTML = '';
+                        loadHistory();
+                    };
+                    let html = `
+                        <div class="flex justify-between items-start">
+                            <div class="flex-1 min-w-0">
+                                <div class="font-bold ${isActive ? 'text-red-400' : 'text-theme-main'} truncate">${s.name}</div>
+                                <div class="text-[11px] ${isActive ? 'text-red-300' : 'text-theme-sub'} truncate">${s.user}@${s.host}:${s.port}</div>
+                                ${s.remark ? `<div class="text-[10px] text-orange-400 truncate mt-0.5">${s.remark}</div>` : ''}
+                            </div>
+                            <button onclick="event.stopPropagation(); deleteServer(${s.id})" class="text-red-500 hover:text-red-400 p-1 opacity-50 hover:opacity-100 transition-opacity">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-3.5 h-3.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                            </button>
+                        </div>
+                    `;
+                    if (isActive) html += `<div class="absolute bottom-2 right-10"><span class="bg-red-500 text-white text-[9px] px-1.5 py-0.5 rounded-full">当前</span></div>`;
+                    card.innerHTML = html;
+                    groupContainer.appendChild(card);
+                });
+                box.appendChild(groupHeader);
+                box.appendChild(groupContainer);
+            }
+
+            const datalist = document.getElementById('group-list');
+            if (datalist) datalist.innerHTML = groupNames.map(g => `<option value="${g}">`).join('');
+        }
+
+        async function loadAI() {
+            const res = await fetch('/api/ai'); if(!res.ok) return; const data = await res.json();
+            const box = document.getElementById('ai-list'); box.innerHTML = '';
+            data.forEach((a, i) => {
+                if(!selectedAiId) selectedAiId = a.id;
+                const isActive = selectedAiId === a.id;
+                const div = document.createElement('div');
+                div.className = `flex items-center justify-between p-2.5 rounded-theme cursor-pointer mb-1 transition-all ${isActive ? 'bg-theme-card border border-theme text-theme-main shadow-sm' : 'hover:bg-theme-card text-theme-sub border border-transparent'}`;
+                div.onclick = () => { selectedAiId = a.id; loadAI(); };
+                div.innerHTML = `<div class="flex-1 min-w-0"><div class="text-xs font-bold truncate">${a.name}</div></div>
+                                 <div class="flex items-center gap-2">
+                                    <div class="text-[10px] text-green-500 font-bold bg-green-500/10 px-2 py-0.5 rounded-full">已配置</div>
+                                    <button onclick="event.stopPropagation(); deleteAI(${a.id})" class="text-red-500 hover:text-red-400 opacity-50 hover:opacity-100 transition-opacity">×</button>
+                                 </div>`;
+                box.appendChild(div);
+            });
+        }
+
+        async function deleteServer(id) { if(confirm("确定要删除这台服务器吗？")) { await fetch(`/api/servers/${id}`, { method: 'DELETE' }); selectedServerId = null; document.getElementById('chat-area').innerHTML = ''; loadServers(); } }
+        async function deleteAI(id) { if(confirm("确定要删除这个 AI 模型吗？")) { await fetch(`/api/ai/${id}`, { method: 'DELETE' }); selectedAiId = null; loadAI(); } }
+
+        async function createGroup() {
+            const name = document.getElementById('new-group-name').value.trim();
+            if(!name) return alert("请输入目录名");
+            await fetch('/api/groups', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ name }) });
+            document.getElementById('new-group-name').value = '';
+            closeModal('group'); loadServers();
+        }
+
+        async function deleteGroup(name) {
+            if(!confirm(`确定删除目录【${name}】吗？该目录下的主机会移至“未分组”。`)) return;
+            await fetch(`/api/groups/${encodeURIComponent(name)}`, { method: 'DELETE' });
+            loadServers();
+        }
+
+        async function loadHistory() {
+            if (!selectedServerId) return;
+            const res = await fetch(`/api/history/${selectedServerId}`); if(!res.ok) return; const data = await res.json();
+            const box = document.getElementById('history-list'); const chatArea = document.getElementById('chat-area');
+            box.innerHTML = ''; chatArea.innerHTML = '';
+            if(data.length === 0) chatArea.innerHTML = `<div class="flex justify-start"><div class="bg-theme-card border border-theme p-4 rounded-theme text-sm text-theme-main">你好！请发送指令。</div></div>`;
+
+            let historyThinkingBox = null;
+            data.forEach(item => {
+                if (item.role === 'user') {
+                    const d = document.createElement('div'); d.className = 'p-2 text-xs text-theme-sub border-b border-theme truncate cursor-pointer hover:text-theme-main';
+                    d.innerText = item.content.replace(/\[IMAGE\].*?\[\/IMAGE\]/g, '[图片] '); box.appendChild(d); appendMsg(item.content, 'user'); historyThinkingBox = null;
+                } else if (item.role === 'assistant') {
+                    appendMsg(item.content, 'ai'); historyThinkingBox = null;
+                } else if (item.role === 'command') {
+                    if(!historyThinkingBox) historyThinkingBox = createThinkingBox("历史执行过程");
+                    const cmdText = item.content.replace('$ ', '');
+                    historyThinkingBox.querySelector('.thinking-content').innerHTML += `<div class="cmd-block"><div class="cmd-head"><span>▶ ${cmdText}</span><span class="cmd-success">exit 0</span></div></div>`;
+                }
+            });
+            scrollToBottom();
+        }
+
+        function sendMsg() {
+            if(isExecuting) return alert("当前命令正在执行中，请等待完成或点击停止！");
+            const input = document.getElementById('chat-input'); const text = input.value.trim();
+            if (!text && !currentImageBase64) return;
+            if (!selectedServerId || !selectedAiId) return alert("请选择服务器和AI模型！");
+            const sendText = text || "请识别图片内容。";
+            appendMsg(sendText, 'user', currentImageBase64);
+            toggleUI(true);
+            ws.send(JSON.stringify({ text: sendText, image_base64: currentImageBase64, server_id: selectedServerId, ai_id: selectedAiId }));
+            input.value = ''; clearImage();
+        }
+
+        let currentThinkingBox = null;
+        ws.onmessage = function(e) {
+            const data = JSON.parse(e.data);
+            if (data.type === 'cmd_start') {
+                if (!currentThinkingBox) currentThinkingBox = createThinkingBox("实时执行流...");
+                const cmdDiv = document.createElement('div');
+                cmdDiv.className = 'cmd-block open'; cmdDiv.id = `cmd-${data.id}`;
+                cmdDiv.innerHTML = `<div class="cmd-head"><span class="cmd-running"> <span class="host-tag">${data.host || '默认'}</span>正在运行: ${data.cmd}</span> <span class="cmd-running animate-pulse">执行中...</span></div><div class="cmd-body"></div>`;
+                currentThinkingBox.querySelector('.thinking-content').appendChild(cmdDiv);
+                scrollToBottom();
+            } else if (data.type === 'cmd_end') {
+                const cmdDiv = document.getElementById(`cmd-${data.id}`);
+                if (cmdDiv) {
+                    const isSuccess = data.code === 0;
+                    const statusHtml = isSuccess ? `<span class="cmd-success">exit 0</span>` : (data.code === -1 ? `<span class="cmd-fail">已中止</span>` : `<span class="cmd-fail">exit ${data.code}</span>`);
+                    const originalCmd = cmdDiv.querySelector('.cmd-head').innerHTML.match(/正在运行: (.*?)<\/span>/)[1];
+                    const hostTag = cmdDiv.querySelector('.host-tag').outerHTML;
+                    cmdDiv.querySelector('.cmd-head').innerHTML = `<span class="${isSuccess ? 'cmd-success' : 'cmd-fail'}">${hostTag} ▶ ${originalCmd}</span> ${statusHtml}`;
+                    cmdDiv.querySelector('.cmd-body').innerText = data.res || "执行成功，无输出";
+                }
+            } else if (data.type === 'message') {
+                appendMsg(data.content, 'ai'); currentThinkingBox = null; toggleUI(false);
+            } else if (data.type === 'confirm') {
+                if (sessionAllowAll) { ws.send(JSON.stringify({ action: "yes" })); return; }
+                playAlertSound();
+                let tag = "高危操作";
+                if(data.command.includes("rm -rf")) tag = "递归强制删除 rm -rf";
+                if(data.command.includes("reboot")) tag = "重启系统 reboot";
+                if(data.command.includes("shutdown")) tag = "关机 shutdown";
+                document.getElementById('confirm-tag').innerText = tag;
+                document.getElementById('confirm-host').innerText = `目标主机: ${data.host || '当前选中'}`;
+                document.getElementById('confirm-cmd').innerText = data.command;
+                document.getElementById('modal-confirm').classList.replace('hidden', 'flex');
+            }
+        };
+
+        function confirmAction(actionType) {
+            document.getElementById('modal-confirm').classList.replace('flex', 'hidden');
+            if (actionType === 'yes') { ws.send(JSON.stringify({ action: "yes" })); }
+            else if (actionType === 'allow_all') { sessionAllowAll = true; document.getElementById('allow-all-banner').classList.remove('hidden'); ws.send(JSON.stringify({ action: "yes" })); }
+            else { ws.send(JSON.stringify({ action: "no" })); toggleUI(false); }
+        }
+
+        function disableAllowAll() { sessionAllowAll = false; document.getElementById('allow-all-banner').classList.add('hidden'); alert("已关闭全放行模式，高危命令将重新弹窗提示。"); }
+
+        function createThinkingBox(defaultText = "思考过程") {
+            const area = document.getElementById('chat-area'); const div = document.createElement('div');
+            div.className = 'mb-4 flex justify-start w-full';
+            div.innerHTML = `<div class="w-full bg-[#181818] border border-theme rounded-theme shadow-sm overflow-hidden"><div class="px-4 py-2 text-xs text-theme-sub font-bold border-b border-theme flex items-center gap-2"><div class="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></div> ${defaultText}</div><div class="thinking-content p-3"></div></div>`;
+            area.appendChild(div); scrollToBottom(); return div;
+        }
+
+        function appendMsg(text, role, imgBase64 = null) {
+            const area = document.getElementById('chat-area'); const div = document.createElement('div');
+            div.className = `flex ${role === 'user' ? 'justify-end' : 'justify-start'} mb-4`;
+            if (role === 'user') {
+                let displayText = text; let imgUrl = null;
+                const match = text.match(/\[IMAGE\](.*?)\[\/IMAGE\]/);
+                if (match) { imgUrl = `/uploads_images/${match[1]}`; displayText = text.replace(/\[IMAGE\].*?\[\/IMAGE\]/, '').trim(); }
+                let contentHtml = `<div class="text-sm whitespace-pre-wrap">${displayText}</div>`;
+                const src = imgBase64 || imgUrl;
+                if (src) contentHtml += `<img src="${src}" class="max-w-full h-auto rounded mt-2 max-h-60 object-contain border border-white/20">`;
+                div.innerHTML = `<div class="max-w-[80%] bg-[var(--user-bubble)] text-[var(--user-text)] px-4 py-3 rounded-[var(--radius)] rounded-tr-sm shadow-sm">${contentHtml}</div>`;
+            } else {
+                div.innerHTML = `<div class="w-full max-w-[90%] bg-theme-panel border border-theme rounded-[var(--radius)] rounded-tl-sm p-5 shadow-sm markdown-body text-theme-main">${marked.parse(text)}</div>`;
+            }
+            area.appendChild(div); scrollToBottom();
+        }
+
+        function scrollToBottom() { const area = document.getElementById('chat-area'); area.scrollTop = area.scrollHeight; }
+
+        function openModal(type) {
+            if(type === 'settings') {
+                document.getElementById('modal-settings').classList.replace('hidden', 'flex');
+                fetch('/api/settings').then(r => r.json()).then(data => {
+                    document.getElementById('set-max-rounds').value = data.max_rounds || "10000";
+                    document.getElementById('set-max-context').value = data.max_context || "100";
+                    document.getElementById('set-keep-context').value = data.keep_context || "45";
+                    document.getElementById('set-interval').value = data.interval || "30";
+                    document.getElementById('set-th-cpu').value = data.th_cpu || "90";
+                    document.getElementById('set-th-mem').value = data.th_mem || "90";
+                    document.getElementById('set-th-disk').value = data.th_disk || "85";
+                });
+                return;
+            }
+            document.getElementById(`modal-${type}`).classList.replace('hidden', 'flex');
+        }
+        function closeModal(type) { document.getElementById(`modal-${type}`).classList.replace('flex', 'hidden'); }
+        window.onclick = function(e) { if (e.target.classList.contains('backdrop-blur-sm') && e.target.id !== 'modal-confirm') e.target.classList.replace('flex', 'hidden'); }
+
+        async function toggleMonitor() {
+            const btn = document.getElementById('btn-toggle-monitor');
+            if (btn.disabled) return;
+            btn.disabled = true; btn.innerText = '切换中...';
+            try { await fetch('/api/monitor/toggle', { method: 'POST' }); }
+            catch (e) { console.error("值守切换失败:", e); }
+            finally { btn.disabled = false; await fetchMonitorData(); }
+        }
+
+        async function fetchMonitorData() {
+            try {
+                const res = await fetch('/api/monitor/data'); if(!res.ok) return;
+                const data = await res.json();
+                const btn = document.getElementById('btn-toggle-monitor');
+                if (btn) {
+                    if (data.running) { btn.innerText = '停止值守'; btn.className = 'w-full py-1.5 rounded-theme bg-red-900/30 border border-red-700/50 text-red-400 mb-2 font-bold'; }
+                    else { btn.innerText = '一键值守'; btn.className = 'w-full py-1.5 rounded-theme border border-theme hover:bg-theme-main text-theme-main mb-2 font-bold transition-colors'; }
+                }
+                const statRunning = document.getElementById('stat-running');
+                if (statRunning) {
+                    if (data.running) { statRunning.innerText = '值守运行中'; statRunning.className = 'px-3 py-1 border border-blue-500/50 text-blue-400 text-xs rounded-full bg-blue-500/10'; }
+                    else { statRunning.innerText = '值守未开启'; statRunning.className = 'px-3 py-1 border border-theme text-theme-sub text-xs rounded-full'; }
+                }
+
+                let th = { th_cpu: 90, th_mem: 90, th_disk: 85, th_swap: 70 };
+                try { const setRes = await fetch('/api/settings'); if (setRes.ok) th = await setRes.json(); } catch(e) {}
+                const srvRes = await fetch('/api/servers'); if(!srvRes.ok) return; const servers = await srvRes.json();
+                const statBox = document.getElementById('monitor-stats'); if (statBox) statBox.innerText = `监测 ${servers.length} 台 暂停 0 台`;
+                if(document.getElementById('view-panel').classList.contains('hidden')) return;
+
+                let statNormal = 0, statWarning = 0, statError = 0, statPaused = 0, statUnknown = 0;
+                const container = document.getElementById('monitor-cards');
+
+                if (container.children.length !== servers.length) {
+                    container.innerHTML = '';
+                    servers.forEach(srv => {
+                        const card = document.createElement('div'); card.id = `card-${srv.id}`; card.className = 'bg-theme-card border border-theme rounded-theme p-5 shadow-sm flex flex-col';
+                        card.innerHTML = `
+                            <div class="flex justify-between items-center mb-1"><div class="flex items-center gap-2"><div class="w-2 h-2 rounded-full bg-gray-400 status-dot"></div><div class="text-sm font-bold text-theme-main">${srv.name}</div></div><div class="text-[11px] text-theme-sub status-text">未采集</div></div>
+                            <div class="mb-4 mt-1"><span class="text-[10px] border border-theme text-theme-sub px-1.5 py-0.5 rounded">${srv.group_name || '未分组'}</span></div>
+                            <div class="space-y-3 flex-1">
+                                <div class="flex items-center gap-2"><span class="text-xs text-theme-sub w-8">CPU</span><div class="flex-1 bg-theme-main progress-track h-1.5 rounded-full relative"><div class="h-full bg-blue-500 rounded-full progress-bar transition-all duration-500" style="width: 0%"></div></div><span class="text-xs text-theme-sub w-8 text-right val-cpu">-</span></div>
+                                <div class="flex items-center gap-2"><span class="text-xs text-theme-sub w-8">内存</span><div class="flex-1 bg-theme-main progress-track h-1.5 rounded-full relative"><div class="h-full bg-blue-500 rounded-full progress-bar transition-all duration-500" style="width: 0%"></div></div><span class="text-xs text-theme-sub w-8 text-right val-mem">-</span></div>
+                                <div class="flex items-center gap-2"><span class="text-xs text-theme-sub w-8">磁盘</span><div class="flex-1 bg-theme-main progress-track h-1.5 rounded-full relative"><div class="h-full bg-blue-500 rounded-full progress-bar transition-all duration-500" style="width: 0%"></div></div><span class="text-xs text-theme-sub w-8 text-right val-disk">-</span></div>
+                                <div class="flex items-center gap-2"><span class="text-xs text-theme-sub w-8">Swap</span><div class="flex-1 bg-theme-main progress-track h-1.5 rounded-full relative"><div class="h-full bg-blue-500 rounded-full progress-bar transition-all duration-500" style="width: 0%"></div></div><span class="text-xs text-theme-sub w-8 text-right val-swap">-</span></div>
+                            </div>
+                            <div class="text-[11px] text-theme-sub mt-4 pt-3 border-t border-theme text-center empty-text hidden">暂无数据</div>`;
+                        container.appendChild(card);
+                    });
+                }
+
+                servers.forEach(srv => {
+                    try {
+                        const m = data.data[srv.id];
+                        const card = document.getElementById(`card-${srv.id}`); if(!card) return;
+                        const dot = card.querySelector('.status-dot'); const statusText = card.querySelector('.status-text');
+                        const emptyText = card.querySelector('.empty-text'); const metricsDiv = card.querySelector('.space-y-3');
+                        if (!m || m.status === 'unknown') {
+                            statUnknown++;
+                            if (data.running) {
+                                dot.className = 'w-2 h-2 rounded-full bg-blue-500 animate-pulse status-dot'; statusText.innerText = '检测中...'; statusText.className = 'text-[11px] text-blue-400 status-text';
+                                emptyText.classList.add('hidden'); metricsDiv.classList.remove('opacity-30');
+                                ['cpu', 'mem', 'disk', 'swap'].forEach(k => { const span = card.querySelector(`.val-${k}`); if(span) { span.innerText = '-'; span.previousElementSibling.firstElementChild.style.width = '0%'; span.previousElementSibling.firstElementChild.className = 'h-full rounded-full bg-blue-500 progress-bar transition-all duration-500'; } });
+                            } else {
+                                dot.className = 'w-2 h-2 rounded-full bg-gray-400 status-dot'; statusText.innerText = '未采集'; statusText.className = 'text-[11px] text-theme-sub status-text';
+                                emptyText.classList.remove('hidden'); emptyText.innerText = '值守未开启'; metricsDiv.classList.add('opacity-30');
+                                ['cpu', 'mem', 'disk', 'swap'].forEach(k => { const span = card.querySelector(`.val-${k}`); if(span) { span.innerText = '-'; span.previousElementSibling.firstElementChild.style.width = '0%'; span.previousElementSibling.firstElementChild.className = 'h-full rounded-full bg-gray-500 progress-bar transition-all duration-500'; } });
+                            }
+                            return;
+                        }
+                        let isWarn = false;
+                        if (m.cpu >= parseFloat(th.th_cpu || 90)) isWarn = true; if (m.mem >= parseFloat(th.th_mem || 90)) isWarn = true; if (m.disk >= parseFloat(th.th_disk || 85)) isWarn = true; if (m.swap >= parseFloat(th.th_swap || 70)) isWarn = true;
+                        if (m.status === 'offline') { statError++; dot.className = 'w-2 h-2 rounded-full bg-red-500 status-dot'; statusText.innerText = '异常'; statusText.className = 'text-[11px] text-red-500 status-text'; }
+                        else if (isWarn) {
+                            statWarning++; dot.className = 'w-2 h-2 rounded-full bg-yellow-500 status-dot'; statusText.innerText = '告警'; statusText.className = 'text-[11px] text-yellow-500 status-text';
+                            if (!window.lastWarnState) window.lastWarnState = {};
+                            if (!window.lastWarnState[srv.id]) { window.lastWarnState[srv.id] = true; playAlertSound(); const alertBanner = document.getElementById('alert-banner'); alertBanner.innerHTML = `⚠️ 注意：主机【${srv.name}】资源使用率超出阈值！点击关闭。`; alertBanner.classList.remove('hidden'); }
+                        } else { if (window.lastWarnState) window.lastWarnState[srv.id] = false; statNormal++; dot.className = 'w-2 h-2 rounded-full bg-green-500 status-dot'; statusText.innerText = '正常'; statusText.className = 'text-[11px] text-green-500 status-text'; }
+                        emptyText.classList.add('hidden'); metricsDiv.classList.remove('opacity-30');
+                        const getColor = (val, threshold) => val >= threshold ? 'bg-red-500' : (val > 60 ? 'bg-yellow-500' : 'bg-blue-500');
+                        const updateRow = (cls, value, threshold) => {
+                            const span = card.querySelector(cls); if(!span) return;
+                            span.innerText = `${value}%`; span.className = `text-xs text-theme-main w-8 text-right ${cls}`;
+                            const bar = span.previousElementSibling.firstElementChild;
+                            if(bar) { bar.style.width = `${value}%`; bar.className = `h-full rounded-full ${getColor(value, threshold)} progress-bar transition-all duration-500`; }
+                        };
+                        updateRow('.val-cpu', m.cpu, parseFloat(th.th_cpu || 90)); updateRow('.val-mem', m.mem, parseFloat(th.th_mem || 90));
+                        updateRow('.val-disk', m.disk, parseFloat(th.th_disk || 85)); updateRow('.val-swap', m.swap, parseFloat(th.th_swap || 70));
+                    } catch(err) { console.warn("更新卡片出错", srv.name, err); }
+                });
+                const elNormal = document.getElementById('stat-normal'); if(elNormal) elNormal.innerText = statNormal;
+                const elWarning = document.getElementById('stat-warning'); if(elWarning) elWarning.innerText = statWarning;
+                const elError = document.getElementById('stat-error'); if(elError) elError.innerText = statError;
+                const elPaused = document.getElementById('stat-paused'); if(elPaused) elPaused.innerText = statPaused;
+                const elUnknown = document.getElementById('stat-unknown'); if(elUnknown) elUnknown.innerText = statUnknown;
+            } catch (e) { console.warn("拉取监控数据失败:", e); }
+        }
+
+        async function loadKBTree() {
+            try {
+                const res = await fetch('/api/kb/tree'); if(!res.ok) return;
+                const data = await res.json();
+                const container = document.getElementById('kb-tree-container'); container.innerHTML = '';
+                if(data.length === 0) { container.innerHTML = '<div class="text-theme-sub text-xs text-center py-4">暂无挂载目录</div>'; return; }
+
+                function renderNode(node, parentEl) {
+                    if(node.type === 'dir') {
+                        const div = document.createElement('div'); div.className = 'tree-dir';
+                        div.innerHTML = `<span class="tree-toggle">▶</span> 📁 ${node.name} <button onclick="event.stopPropagation(); deleteKBDir(${node.id})" class="text-red-500 text-xs ml-2 hover:underline">移除</button>`;
+                        const childrenDiv = document.createElement('div'); childrenDiv.className = 'tree-children';
+                        div.onclick = (e) => { e.stopPropagation(); div.classList.toggle('open'); };
+                        div.appendChild(childrenDiv); parentEl.appendChild(div);
+                        if(node.children) node.children.forEach(child => renderNode(child, childrenDiv));
+                    } else if(node.type === 'file') {
+                        const div = document.createElement('div'); div.className = 'tree-file'; div.innerHTML = `📄 ${node.name}`;
+                        div.onclick = (e) => { e.stopPropagation(); loadKBFileContent(node.path); };
+                        parentEl.appendChild(div);
+                    }
+                }
+                data.forEach(root => renderNode(root, container));
+            } catch(e) { console.error("加载目录树失败", e); }
+        }
+
+        async function loadKBFileContent(path) {
+            try {
+                const res = await fetch(`/api/kb/content?path=${encodeURIComponent(path)}`);
+                const data = await res.json();
+                document.getElementById('kb-preview').innerHTML = marked.parse(data.content || '文件为空');
+            } catch(e) { document.getElementById('kb-preview').innerHTML = `<div class="text-red-500">加载文件失败: ${e.message}</div>`; }
+        }
+
+        async function triggerLocalDirSelect(e) {
+            const btn = e.target; const oldText = btn.innerText; btn.innerText = '等待选择...'; btn.disabled = true;
+            try {
+                const res = await fetch('/api/kb/select_dir');
+                const data = await res.json();
+                if (data.status === 'ok') {
+                    const saveRes = await fetch('/api/kb/dirs', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ path: data.path }) });
+                    if (saveRes.ok) loadKBTree(); else { const err = await saveRes.json(); alert("挂载失败: " + err.detail); }
+                } else if (data.status === 'error') alert(data.msg);
+            } catch(err) { alert("请求失败，请检查后台日志"); }
+            finally { btn.innerText = oldText; btn.disabled = false; }
+        }
+
+        async function deleteKBDir(id) { if(confirm("确定要移除这个挂载目录吗？")) { await fetch(`/api/kb/dirs/${id}`, { method: 'DELETE' }); loadKBTree(); } }
+
+        async function loadLogs() {
+            const res = await fetch('/api/logs'); if(!res.ok) return; const data = await res.json();
+            const tbody = document.getElementById('log-list'); tbody.innerHTML = '';
+            const filterLevel = document.getElementById('log-level-filter').value;
+            data.forEach(l => {
+                if(filterLevel !== 'ALL' && l.level !== filterLevel) return;
+                const tr = document.createElement('tr'); tr.className = 'border-b border-theme hover:bg-theme-sidebar';
+                const levelColor = l.level === 'ERROR' ? 'text-red-500' : (l.level === 'WARNING' ? 'text-yellow-500' : 'text-blue-400');
+                tr.innerHTML = `<td class="px-4 py-2 text-theme-sub whitespace-nowrap w-40">${l.time}</td><td class="px-4 py-2 ${levelColor} w-24 font-bold">${l.level}</td><td class="px-4 py-2 text-theme-main break-all">${l.content}</td>`;
+                tbody.appendChild(tr);
+            });
+        }
+
+        async function saveSettings() {
+            const payload = {
+                max_rounds: document.getElementById('set-max-rounds').value, max_context: document.getElementById('set-max-context').value,
+                keep_context: document.getElementById('set-keep-context').value, interval: document.getElementById('set-interval').value,
+                th_cpu: document.getElementById('set-th-cpu').value, th_mem: document.getElementById('set-th-mem').value, th_disk: document.getElementById('set-th-disk').value
+            };
+            await fetch('/api/settings', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
+            closeModal('settings'); fetchMonitorData();
+        }
+
+        async function loadEmailSettings() {
+            const res = await fetch('/api/settings'); if(!res.ok) return; const data = await res.json();
+            document.getElementById('smtp-host').value = data.smtp_host || ''; document.getElementById('smtp-port').value = data.smtp_port || '';
+            document.getElementById('smtp-user').value = data.smtp_user || ''; document.getElementById('to-email').value = data.to_email || '';
+        }
+
+        async function saveEmailSettings() {
+            const payload = { smtp_host: document.getElementById('smtp-host').value, smtp_port: document.getElementById('smtp-port').value, smtp_user: document.getElementById('smtp-user').value, smtp_pass: document.getElementById('smtp-pass').value, to_email: document.getElementById('to-email').value };
+            await fetch('/api/settings', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
+        }
+
+        async function sendTestEmail() {
+            try {
+                const res = await fetch('/api/test-email', { method: 'POST' });
+                if(res.ok) alert("测试邮件发送成功，请查收！"); else { const err = await res.json(); alert(`发送失败：${err.detail}`); }
+            } catch(e) { alert("网络错误，请检查控制台输出"); }
+        }
+
+        async function addServer() {
+            const fd = new FormData();
+            fd.append('name', document.getElementById('s-name').value);
+            fd.append('host', document.getElementById('s-host').value);
+            fd.append('port', document.getElementById('s-port').value);
+            fd.append('user', document.getElementById('s-user').value);
+            fd.append('password', document.getElementById('s-pwd').value);
+            fd.append('group_name', document.getElementById('s-group').value || '未分组');
+            fd.append('remark', document.getElementById('s-remark').value);
+            await fetch('/api/servers', { method: 'POST', body: fd });
+            closeModal('server'); loadServers();
+        }
+
+        async function addAI() {
+            const fd = new FormData();
+            fd.append('name', document.getElementById('ai-name').value); fd.append('api_key', document.getElementById('ai-key').value);
+            fd.append('base_url', document.getElementById('ai-url').value); fd.append('model', document.getElementById('ai-model').value);
+            await fetch('/api/ai', { method: 'POST', body: fd }); closeModal('ai'); loadAI();
+        }
+
+        async function shutdownApp() {
+            if(confirm("确定要彻底关闭后台服务吗？")) {
+                try { await fetch('/api/shutdown', { method: 'POST' }); } catch(e) {}
+                document.body.innerHTML = '<div style="display:flex; justify-content:center; align-items:center; height:100vh; color:#888; font-size:24px;">后台服务已彻底停止。</div>';
+            }
+        }
+    </script>
+</body>
+</html>
