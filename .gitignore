@@ -16,6 +16,8 @@ build/pyinstaller/
 *.exe
 AIOps_Agent/
 AIOps_Agent.zip
+.buildenv/
+.tmp/
 
 # ===== Python =====
 __pycache__/

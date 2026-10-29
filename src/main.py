@@ -11,6 +11,8 @@ import time
 import webbrowser
 import threading
 import smtplib
+import ssl
+import socket
 import tkinter as tk
 from tkinter import filedialog
 from email.mime.text import MIMEText
@@ -257,24 +259,46 @@ def send_email_util(subject, content):
     smtp_user = get_setting("smtp_user")
     smtp_pass = get_setting("smtp_pass")
     to_email = get_setting("to_email")
-    if not all([smtp_host, smtp_port, smtp_user, smtp_pass, to_email]): return False, "配置不完整"
+    if not all([smtp_host, smtp_port, smtp_user, smtp_pass, to_email]):
+        return False, "SMTP 配置不完整，请检查发信账号和密码"
     msg = MIMEText(content, 'plain', 'utf-8')
     msg['Subject'] = Header(subject, 'utf-8')
     msg['From'] = smtp_user
     msg['To'] = to_email
     recipients = [email.strip() for email in to_email.split(',') if email.strip()]
+
+    # 核心修复：强制 IPv4 解析，解决部分网络下 IPv6 导致的 SSL 握手失败
+    original_getaddrinfo = socket.getaddrinfo
+
+    def getaddrinfo_ipv4(host, port, family=0, type=0, proto=0, flags=0):
+        return original_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
+
+    socket.getaddrinfo = getaddrinfo_ipv4
+
     try:
-        if str(smtp_port) == "465":
-            server = smtplib.SMTP_SSL(smtp_host, int(smtp_port))
+        # 默认校验证书；个别环境证书链异常时可用 AIOPS_SMTP_INSECURE=1 跳过（不推荐）
+        if os.environ.get("AIOPS_SMTP_INSECURE") == "1":
+            context = ssl._create_unverified_context()
         else:
-            server = smtplib.SMTP(smtp_host, int(smtp_port))
-            server.starttls()
+            context = ssl.create_default_context()
+
+        if str(smtp_port) == "465":
+            server = smtplib.SMTP_SSL(smtp_host, int(smtp_port), timeout=10, context=context)
+        else:
+            server = smtplib.SMTP(smtp_host, int(smtp_port), timeout=10)
+            server.starttls(context=context)
+
         server.login(smtp_user, smtp_pass)
         server.sendmail(smtp_user, recipients, msg.as_string())
         server.quit()
         return True, "发送成功"
+    except smtplib.SMTPAuthenticationError:
+        return False, "认证失败：请检查邮箱授权码是否正确"
     except Exception as e:
         return False, str(e)
+    finally:
+        # 恢复全局 socket，避免影响其他功能
+        socket.getaddrinfo = original_getaddrinfo
 
 
 async def monitor_task():
@@ -341,7 +365,7 @@ app.mount("/uploads_images", StaticFiles(directory=IMG_DIR), name="uploads_image
 # ================= 5. API 路由 =================
 @app.post("/api/test-email")
 def test_email():
-    success, msg = send_email_util("🧪 AI 运维助手 - 测试邮件",
+    success, msg = send_email_util("🧪 AIOps_Agent - 测试邮件",
                                    "这是一封测试邮件。如果您收到此邮件，说明您的 SMTP 配置完全正确！")
     if success:
         return {"status": "ok", "msg": msg}
@@ -651,6 +675,12 @@ async def websocket_endpoint(websocket: WebSocket):
     try:
         while True:
             data = json.loads(await websocket.receive_text())
+
+            if data.get("action") == "clear_context":
+                agent_tasks[id(websocket)]["messages"] = None
+                await websocket.send_json({"type": "status", "content": "✅ 后端记忆上下文已清理"})
+                continue
+
             if data.get("action") == "stop":
                 stop_event.set()
                 await websocket.send_json(
@@ -726,14 +756,20 @@ async def websocket_endpoint(websocket: WebSocket):
                 conn.close()
 
                 system_prompt = f"""你是运行在 Web 端的专业运维助手，当前用户正在界面中与你对话。
+
+【🚨 极其重要 - 当前操作目标 🚨】：
+用户当前在左侧选中的主机是：【{server['name']}】 (IP: {server['host']})。
+除非用户在本次提问中明确说了“去网站上看”、“去监控机看”等明确切换目标的话，否则**你的所有分析、排查、执行命令，都必须且只能在【{server['name']}】上进行！**
+⚠️ 警告：如果你发现当前选中的【{server['name']}】连不上，请如实报告该主机失联，**绝对不允许**擅自将目标切换到历史记录里提到过的其他机器去执行操作或得出结论！
+
 【全局网络拓扑（你的操作范围）】：
-你当前连接在服务器【{server['name']}】上，但你拥有全网主机的操作权限，目前受管的主机列表如下：
+目前受管的主机列表如下：
 {all_srv_str}
 
 {kb_context}
 
 【核心规则】：
-1. 当用户要求你在**其他服务器**（例如“网站”、“监控”）上执行操作时，请在调用 `execute_ssh_command` 工具时，将 `target_host` 参数设置为目标主机的准确名称（如：网站）。
+1. 当用户明确要求你在**其他服务器**上执行操作时，请在调用 `execute_ssh_command` 工具时，将 `target_host` 参数设置为目标主机的准确名称。如果不填 `target_host`，系统默认在【{server['name']}】上执行。
 2. 绝不允许在正文中要求用户回复“确认”、“同意”！必须调用 `execute_ssh_command`。系统会自动弹窗。
 3. 绝不允许编造执行结果！只有工具真实返回的内容才是可信的。
 4. 如果用户的问题与上述【本地挂载知识库参考】有关，请务必优先结合你读到的本地文件内容来回答。
@@ -773,7 +809,7 @@ async def websocket_endpoint(websocket: WebSocket):
                         "properties": {
                             "command": {"type": "string", "description": "要执行的Shell命令"},
                             "target_host": {"type": "string",
-                                            "description": "目标主机的名称（如：'网站', '监控'）。如果不填，默认在当前选中的服务器执行。"}
+                                            "description": "目标主机的名称（如：'网站', '监控'）。【注意：如果用户没有明确指定要在哪台机器操作，请务必留空！系统默认会在当前选中的机器执行。绝对不要在用户排查当前机器时乱填其他机器！】"}
                         },
                         "required": ["command"]
                     }
@@ -861,7 +897,6 @@ async def get():
 
 # ================= 7. 启动项与控制台输出 =================
 if __name__ == "__main__":
-    import socket
     import uvicorn
 
     PORT = int(os.environ.get("AIOPS_PORT", "8010"))
@@ -876,12 +911,11 @@ if __name__ == "__main__":
         interval = "30"
 
     print("\033[96m" + "=" * 65 + "\033[0m")
-    print("\033[92m[授权] 开源版 · 永久免费（MIT License）\033[0m")
-    print(f"AI运维Agent-Secure  Agent Web GUI：\033[93mhttp://127.0.0.1:{PORT}\033[0m（Ctrl+C 退出）")
+    print("\033[92m[开源] AIOps_Agent · 欢迎使用与贡献\033[0m")
+    print(f"AIOps_Agent  Web GUI：\033[93mhttp://127.0.0.1:{PORT}\033[0m（Ctrl+C 退出）")
     print(f"[webapp] 监测器已就绪：可值守 {server_count} 台主机，间隔{interval}s（默认未值守，点「一键值守」启动）")
     print("[webapp] 告警邮件通知已启用：值守告警将同时发送邮件")
     print("\033[96m" + "=" * 65 + "\033[0m")
-    print("\033[94m[作者]：APang\033[0m")
     print("\033[90m提示：关闭此命令行窗口，软件将自动停止并退出。\033[0m\n")
 
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:

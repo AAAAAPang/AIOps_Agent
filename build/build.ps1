@@ -16,7 +16,7 @@ python -m PyInstaller `
     --name AIOps_Agent `
     --onedir `
     --console `
-    --add-data "src\index.html;." `
+    --add-data "$root\src\index.html;." `
     --distpath "$root\dist" `
     --workpath "$root\build\pyinstaller" `
     --specpath "$root\build" `

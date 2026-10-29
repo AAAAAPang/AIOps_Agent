@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>APang的智能运维助手</title>
+    <title>AIOps_Agent</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
@@ -89,10 +89,10 @@
         <div class="p-4 border-b border-theme relative">
             <div class="flex justify-between items-start mb-1">
                 <span class="font-bold text-theme-main text-[16px] tracking-wide flex items-center gap-2">
-                    <span class="text-blue-500 text-xl">✦</span> APang的智能运维
+                    <span class="text-blue-500 text-xl">✦</span> AIOps_Agent智能运维助手
                 </span>
             </div>
-            <div class="text-[11px] text-theme-sub ml-7">V1.0</div>
+            <div class="text-[11px] text-theme-sub ml-7">V1.0 &nbsp;&nbsp; 作者:APang</div>
             <div class="text-[10px] font-bold text-orange-500 ml-7 mt-1">全栈极客开发</div>
         </div>
 
@@ -178,7 +178,7 @@
             <div class="flex-1 overflow-y-auto p-6 space-y-4" id="chat-area">
                 <div class="flex flex-col items-center justify-center h-full text-theme-sub mt-20">
                     <div class="text-5xl mb-4 opacity-50">✨</div>
-                    <div class="text-lg text-theme-main font-bold mb-2">欢迎使用 APang 的 AI 运维助手</div>
+                    <div class="text-lg text-theme-main font-bold mb-2">欢迎使用 AIOps_Agent</div>
                     <div class="text-sm">请在左侧面板点击 + 添加主机和模型开启对话</div>
                 </div>
             </div>
@@ -390,7 +390,6 @@
     </div>
 
     <script>
-        // --- 移除登录逻辑，直接初始化 ---
         let ws;
         ws = new WebSocket(`ws://${window.location.host}/ws`);
 
@@ -602,6 +601,30 @@
             if(!confirm(`确定删除目录【${name}】吗？该目录下的主机会移至“未分组”。`)) return;
             await fetch(`/api/groups/${encodeURIComponent(name)}`, { method: 'DELETE' });
             loadServers();
+        }
+
+        // 【核心修复】彻底清理历史记录和记忆
+        async function clearHistory() {
+            if(!selectedServerId) return alert("请先在左侧选择一台主机！");
+            if(confirm("确定要清空当前主机的所有聊天记录吗？此操作也会重置 AI 的短期记忆！")) {
+                try {
+                    // 1. 发送 WebSocket 指令清空后端内存中的上下文
+                    if (ws && ws.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({ action: "clear_context" }));
+                    }
+
+                    // 2. 删除数据库记录
+                    const res = await fetch(`/api/history/${selectedServerId}`, { method: 'DELETE' });
+                    if (!res.ok) throw new Error("网络请求失败");
+
+                    // 3. 强制清空前端展示
+                    document.getElementById('history-list').innerHTML = '';
+                    document.getElementById('chat-area').innerHTML = '<div class="flex justify-start"><div class="bg-theme-card border border-theme p-4 rounded-theme text-sm text-theme-main">历史记录已清空，AI 记忆已重置。</div></div>';
+                    alert("✅ 聊天记录与 AI 上下文已彻底清除！");
+                } catch(e) {
+                    alert("清除失败：" + e.message);
+                }
+            }
         }
 
         async function loadHistory() {
